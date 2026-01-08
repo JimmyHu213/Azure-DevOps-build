@@ -1,0 +1,28 @@
+{
+    "name": "TR_DailyETL",
+    "properties": {
+        "annotations": [],
+        "runtimeState": "Stopped",
+        "pipelines": [
+            {
+                "pipelineReference": {
+                    "referenceName": "PL_Master_DynamicETL",
+                    "type": "PipelineReference"
+                }
+            }
+        ],
+        "type": "ScheduleTrigger",
+        "typeProperties": {
+            "recurrence": {
+                "frequency": "Day",
+                "interval": 1,
+                "startTime": "2024-01-01T00:00:00",
+                "timeZone": "UTC",
+                "schedule": {
+                    "hours": [2],
+                    "minutes": [0]
+                }
+            }
+        }
+    }
+}

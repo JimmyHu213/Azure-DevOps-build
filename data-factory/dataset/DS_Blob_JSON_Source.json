@@ -1,0 +1,28 @@
+{
+    "name": "DS_Blob_JSON_Source",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_AzureBlobStorage",
+            "type": "LinkedServiceReference"
+        },
+        "parameters": {
+            "FileName": {
+                "type": "string"
+            }
+        },
+        "annotations": [],
+        "type": "Json",
+        "typeProperties": {
+            "location": {
+                "type": "AzureBlobStorageLocation",
+                "fileName": {
+                    "value": "@dataset().FileName",
+                    "type": "Expression"
+                },
+                "folderPath": "json-files",
+                "container": "raw-data"
+            }
+        },
+        "schema": {}
+    }
+}

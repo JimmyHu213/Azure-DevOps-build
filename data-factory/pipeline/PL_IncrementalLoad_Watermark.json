@@ -1,0 +1,217 @@
+{
+    "name": "PL_IncrementalLoad_Watermark",
+    "properties": {
+        "description": "Incremental data load using watermark pattern",
+        "activities": [
+            {
+                "name": "LookupOldWatermark",
+                "type": "Lookup",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "sqlReaderQuery": {
+                            "value": "SELECT * FROM dbo.WatermarkTable WHERE TableName = '@{pipeline().parameters.SourceTableName}'",
+                            "type": "Expression"
+                        },
+                        "queryTimeout": "02:00:00",
+                        "partitionOption": "None"
+                    },
+                    "dataset": {
+                        "referenceName": "DS_AzureSQL_Table",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "SchemaName": "dbo",
+                            "TableName": "WatermarkTable"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "LookupNewWatermark",
+                "type": "Lookup",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "sqlReaderQuery": {
+                            "value": "SELECT MAX(@{pipeline().parameters.WatermarkColumn}) as NewWatermarkValue FROM @{pipeline().parameters.SourceTableName}",
+                            "type": "Expression"
+                        },
+                        "queryTimeout": "02:00:00",
+                        "partitionOption": "None"
+                    },
+                    "dataset": {
+                        "referenceName": "DS_AzureSQL_Table",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "SchemaName": {
+                                "value": "@pipeline().parameters.SourceSchemaName",
+                                "type": "Expression"
+                            },
+                            "TableName": {
+                                "value": "@pipeline().parameters.SourceTableName",
+                                "type": "Expression"
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                "name": "CopyIncrementalData",
+                "type": "Copy",
+                "dependsOn": [
+                    {
+                        "activity": "LookupOldWatermark",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    },
+                    {
+                        "activity": "LookupNewWatermark",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "sqlReaderQuery": {
+                            "value": "SELECT * FROM @{pipeline().parameters.SourceTableName} WHERE @{pipeline().parameters.WatermarkColumn} > '@{activity('LookupOldWatermark').output.firstRow.WatermarkValue}' AND @{pipeline().parameters.WatermarkColumn} <= '@{activity('LookupNewWatermark').output.firstRow.NewWatermarkValue}'",
+                            "type": "Expression"
+                        },
+                        "queryTimeout": "02:00:00",
+                        "partitionOption": "None"
+                    },
+                    "sink": {
+                        "type": "AzureSqlSink",
+                        "writeBehavior": "insert",
+                        "sqlWriterUseTableLock": false
+                    },
+                    "enableStaging": false,
+                    "translator": {
+                        "type": "TabularTranslator",
+                        "typeConversion": true,
+                        "typeConversionSettings": {
+                            "allowDataTruncation": true,
+                            "treatBooleanAsNumber": false
+                        }
+                    }
+                },
+                "inputs": [
+                    {
+                        "referenceName": "DS_AzureSQL_Table",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "SchemaName": {
+                                "value": "@pipeline().parameters.SourceSchemaName",
+                                "type": "Expression"
+                            },
+                            "TableName": {
+                                "value": "@pipeline().parameters.SourceTableName",
+                                "type": "Expression"
+                            }
+                        }
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "DS_AzureSQL_Table",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "SchemaName": {
+                                "value": "@pipeline().parameters.SinkSchemaName",
+                                "type": "Expression"
+                            },
+                            "TableName": {
+                                "value": "@pipeline().parameters.SinkTableName",
+                                "type": "Expression"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "UpdateWatermark",
+                "type": "SqlServerStoredProcedure",
+                "dependsOn": [
+                    {
+                        "activity": "CopyIncrementalData",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "storedProcedureName": "[dbo].[usp_UpdateWatermark]",
+                    "storedProcedureParameters": {
+                        "LastModifiedtime": {
+                            "value": {
+                                "value": "@activity('LookupNewWatermark').output.firstRow.NewWatermarkValue",
+                                "type": "Expression"
+                            },
+                            "type": "DateTime"
+                        },
+                        "TableName": {
+                            "value": {
+                                "value": "@pipeline().parameters.SourceTableName",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        }
+                    }
+                },
+                "linkedServiceName": {
+                    "referenceName": "LS_AzureSqlDatabase",
+                    "type": "LinkedServiceReference"
+                }
+            }
+        ],
+        "parameters": {
+            "SourceSchemaName": {
+                "type": "string",
+                "defaultValue": "dbo"
+            },
+            "SourceTableName": {
+                "type": "string"
+            },
+            "SinkSchemaName": {
+                "type": "string",
+                "defaultValue": "dbo"
+            },
+            "SinkTableName": {
+                "type": "string"
+            },
+            "WatermarkColumn": {
+                "type": "string",
+                "defaultValue": "LastModifiedDate"
+            }
+        },
+        "annotations": []
+    }
+}

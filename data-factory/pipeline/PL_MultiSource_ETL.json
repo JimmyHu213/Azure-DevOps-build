@@ -1,0 +1,230 @@
+{
+    "name": "PL_MultiSource_ETL",
+    "properties": {
+        "description": "Extract from multiple sources (CSV, JSON, REST API) and load to Azure SQL",
+        "activities": [
+            {
+                "name": "Copy_CSV_to_SQL",
+                "type": "Copy",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "source": {
+                        "type": "DelimitedTextSource",
+                        "storeSettings": {
+                            "type": "AzureBlobStorageReadSettings",
+                            "recursive": false,
+                            "enablePartitionDiscovery": false
+                        },
+                        "formatSettings": {
+                            "type": "DelimitedTextReadSettings"
+                        }
+                    },
+                    "sink": {
+                        "type": "AzureSqlSink",
+                        "preCopyScript": {
+                            "value": "TRUNCATE TABLE @{pipeline().parameters.CSVTargetTable}",
+                            "type": "Expression"
+                        },
+                        "writeBehavior": "insert",
+                        "sqlWriterUseTableLock": false,
+                        "disableMetricsCollection": false
+                    },
+                    "enableStaging": false,
+                    "translator": {
+                        "type": "TabularTranslator",
+                        "typeConversion": true,
+                        "typeConversionSettings": {
+                            "allowDataTruncation": true,
+                            "treatBooleanAsNumber": false
+                        }
+                    }
+                },
+                "inputs": [
+                    {
+                        "referenceName": "DS_Blob_CSV_Source",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "FileName": {
+                                "value": "@pipeline().parameters.CSVFileName",
+                                "type": "Expression"
+                            },
+                            "FolderPath": {
+                                "value": "@pipeline().parameters.CSVFolderPath",
+                                "type": "Expression"
+                            }
+                        }
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "DS_AzureSQL_Table",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "SchemaName": "dbo",
+                            "TableName": {
+                                "value": "@pipeline().parameters.CSVTargetTable",
+                                "type": "Expression"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "Copy_JSON_to_SQL",
+                "type": "Copy",
+                "dependsOn": [
+                    {
+                        "activity": "Copy_CSV_to_SQL",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "source": {
+                        "type": "JsonSource",
+                        "storeSettings": {
+                            "type": "AzureBlobStorageReadSettings",
+                            "recursive": false,
+                            "enablePartitionDiscovery": false
+                        },
+                        "formatSettings": {
+                            "type": "JsonReadSettings"
+                        }
+                    },
+                    "sink": {
+                        "type": "AzureSqlSink",
+                        "writeBehavior": "insert",
+                        "sqlWriterUseTableLock": false
+                    },
+                    "enableStaging": false
+                },
+                "inputs": [
+                    {
+                        "referenceName": "DS_Blob_JSON_Source",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "FileName": {
+                                "value": "@pipeline().parameters.JSONFileName",
+                                "type": "Expression"
+                            }
+                        }
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "DS_AzureSQL_Table",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "SchemaName": "dbo",
+                            "TableName": {
+                                "value": "@pipeline().parameters.JSONTargetTable",
+                                "type": "Expression"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "Copy_RestAPI_to_SQL",
+                "type": "Copy",
+                "dependsOn": [
+                    {
+                        "activity": "Copy_JSON_to_SQL",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "source": {
+                        "type": "RestSource",
+                        "httpRequestTimeout": "00:01:40",
+                        "requestInterval": "00.00:00:00.010",
+                        "requestMethod": "GET"
+                    },
+                    "sink": {
+                        "type": "AzureSqlSink",
+                        "writeBehavior": "insert",
+                        "sqlWriterUseTableLock": false
+                    },
+                    "enableStaging": false
+                },
+                "inputs": [
+                    {
+                        "referenceName": "DS_RestAPI_Source",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "RelativeURL": {
+                                "value": "@pipeline().parameters.APIEndpoint",
+                                "type": "Expression"
+                            }
+                        }
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "DS_AzureSQL_Table",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "SchemaName": "dbo",
+                            "TableName": {
+                                "value": "@pipeline().parameters.APITargetTable",
+                                "type": "Expression"
+                            }
+                        }
+                    }
+                ]
+            }
+        ],
+        "parameters": {
+            "CSVFileName": {
+                "type": "string",
+                "defaultValue": "sales_data.csv"
+            },
+            "CSVFolderPath": {
+                "type": "string",
+                "defaultValue": "csv-files"
+            },
+            "CSVTargetTable": {
+                "type": "string",
+                "defaultValue": "SalesData"
+            },
+            "JSONFileName": {
+                "type": "string",
+                "defaultValue": "products.json"
+            },
+            "JSONTargetTable": {
+                "type": "string",
+                "defaultValue": "ProductData"
+            },
+            "APIEndpoint": {
+                "type": "string",
+                "defaultValue": "users"
+            },
+            "APITargetTable": {
+                "type": "string",
+                "defaultValue": "UserData"
+            }
+        },
+        "annotations": []
+    }
+}

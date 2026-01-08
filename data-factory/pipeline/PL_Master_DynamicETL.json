@@ -1,0 +1,95 @@
+{
+    "name": "PL_Master_DynamicETL",
+    "properties": {
+        "description": "Master pipeline to orchestrate multiple ETL processes with dynamic configuration",
+        "activities": [
+            {
+                "name": "GetTableList",
+                "type": "Lookup",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "sqlReaderQuery": "SELECT * FROM dbo.ETLConfiguration WHERE IsActive = 1",
+                        "queryTimeout": "02:00:00",
+                        "partitionOption": "None"
+                    },
+                    "dataset": {
+                        "referenceName": "DS_AzureSQL_Table",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "SchemaName": "dbo",
+                            "TableName": "ETLConfiguration"
+                        }
+                    },
+                    "firstRowOnly": false
+                }
+            },
+            {
+                "name": "ForEachTable",
+                "type": "ForEach",
+                "dependsOn": [
+                    {
+                        "activity": "GetTableList",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "items": {
+                        "value": "@activity('GetTableList').output.value",
+                        "type": "Expression"
+                    },
+                    "isSequential": false,
+                    "batchCount": 4,
+                    "activities": [
+                        {
+                            "name": "ExecuteIncrementalLoad",
+                            "type": "ExecutePipeline",
+                            "dependsOn": [],
+                            "userProperties": [],
+                            "typeProperties": {
+                                "pipeline": {
+                                    "referenceName": "PL_IncrementalLoad_Watermark",
+                                    "type": "PipelineReference"
+                                },
+                                "waitOnCompletion": true,
+                                "parameters": {
+                                    "SourceSchemaName": {
+                                        "value": "@item().SourceSchema",
+                                        "type": "Expression"
+                                    },
+                                    "SourceTableName": {
+                                        "value": "@item().SourceTable",
+                                        "type": "Expression"
+                                    },
+                                    "SinkSchemaName": {
+                                        "value": "@item().SinkSchema",
+                                        "type": "Expression"
+                                    },
+                                    "SinkTableName": {
+                                        "value": "@item().SinkTable",
+                                        "type": "Expression"
+                                    },
+                                    "WatermarkColumn": {
+                                        "value": "@item().WatermarkColumn",
+                                        "type": "Expression"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "annotations": []
+    }
+}
