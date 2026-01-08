@@ -1,0 +1,124 @@
+# Azure DevOps CI/CD Pipeline for ETL Application
+# Multi-stage pipeline: Build -> Test -> Deploy
+
+trigger:
+  branches:
+    include:
+    - main
+    - develop
+
+variables:
+  pythonVersion: '3.11'
+  
+stages:
+# BUILD STAGE
+- stage: Build
+  displayName: 'Build and Test'
+  jobs:
+  - job: BuildJob
+    displayName: 'Build ETL Application'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+      displayName: 'Use Python $(pythonVersion)'
+    
+    - script: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+      displayName: 'Install dependencies'
+    
+    - script: |
+        cd src/etl
+        python -m pytest test_processor.py -v --junitxml=test-results.xml
+      displayName: 'Run unit tests'
+    
+    - task: PublishTestResults@2
+      condition: succeededOrFailed()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '**/test-results.xml'
+      displayName: 'Publish test results'
+    
+    - task: ArchiveFiles@2
+      inputs:
+        rootFolderOrFile: '$(Build.SourcesDirectory)'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/etl-app-$(Build.BuildId).zip'
+      displayName: 'Archive application files'
+    
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'drop'
+      displayName: 'Publish build artifacts'
+
+# DEV DEPLOYMENT STAGE
+- stage: DeployDev
+  displayName: 'Deploy to Development'
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - deployment: DeployDevJob
+    displayName: 'Deploy to Dev Environment'
+    environment: 'Development'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: DownloadBuildArtifacts@0
+            inputs:
+              artifactName: 'drop'
+          
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: 'Azure-ServiceConnection'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo "Deploying to Development environment"
+                echo "Build ID: $(Build.BuildId)"
+                # Deployment commands would go here
+            displayName: 'Deploy to Azure Dev'
+
+# TEST DEPLOYMENT STAGE
+- stage: DeployTest
+  displayName: 'Deploy to Test'
+  dependsOn: DeployDev
+  condition: succeeded()
+  jobs:
+  - deployment: DeployTestJob
+    displayName: 'Deploy to Test Environment'
+    environment: 'Test'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - script: echo "Deploying to Test environment"
+            displayName: 'Deploy to Azure Test'
+
+# PRODUCTION DEPLOYMENT STAGE
+- stage: DeployProd
+  displayName: 'Deploy to Production'
+  dependsOn: DeployTest
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - deployment: DeployProdJob
+    displayName: 'Deploy to Production Environment'
+    environment: 'Production'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - script: echo "Deploying to Production environment"
+            displayName: 'Deploy to Azure Production'
